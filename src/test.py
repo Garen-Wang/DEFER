@@ -1,4 +1,7 @@
-from ..src.dispatcher import DEFER
+# import sys
+# sys.path.append('../src')
+from dispatcher import DEFER
+
 import threading
 from tensorflow.python.keras.applications.resnet50 import ResNet50, preprocess_input, decode_predictions
 from tensorflow.python.keras.preprocessing import image
@@ -7,20 +10,22 @@ import numpy as np
 import queue
 import time
 
-numNodes = 8
-computeNodes = ["IPs COMPUTE NODES HERE"]
+img_path = '/home/garen/GitHub/DEFER/images/images.jpeg'
+img = image.load_img(img_path, target_size=(224, 224))
+x = image.img_to_array(img)
+x = np.expand_dims(x, axis=0)
+x = preprocess_input(x)
+
+numNodes = 2
+computeNodes = ['192.168.31.225', '192.168.31.215']
 defer = DEFER(computeNodes)
 
 model = ResNet50(weights='imagenet', include_top=True)
 # Depending on the number of compute nodes, use different number of partitions
 # "part_at" is where the graph is split, so there should be one less element in this
 # list than the number of partitions you want
-part_at = ["add_2", "add_4", "add_6", "add_8", "add_10", "add_12", "add_14"]
-img_path = 'YOUR IMAGE HERE'
-img = image.load_img(img_path, target_size=(224, 224))
-x = image.img_to_array(img)
-x = np.expand_dims(x, axis=0)
-x = preprocess_input(x)
+# part_at = ["add_2", "add_4", "add_6", "add_8", "add_10", "add_12", "add_14"]
+part_at = ["add_8"]
 
 time_min = 5
 run = time_min * 60

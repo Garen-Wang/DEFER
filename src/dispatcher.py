@@ -7,6 +7,7 @@ import queue
 
 import numpy as np
 import tensorflow as tf
+from tensorflow.python.keras.backend import get_session
 
 from dag_util import *
 from node_state import socket_recv, socket_send
@@ -20,9 +21,11 @@ import time
 class DEFER:
     def __init__(self, computeNodes) -> None:
         self.computeNodes = computeNodes
-        self.dispatchIP = socket.gethostbyname(socket.gethostname())
-        self.chunk_size = 512 * 1000
+        # self.dispatchIP = socket.gethostbyname(socket.gethostname() + ".local")
+        self.dispatchIP = '192.168.31.132'
+        self.chunk_size = 512 * 1000 # 512 KiB
         self.graph = tf.get_default_graph()
+        self.sess = get_session()
     
     def _partition(self, model: tf.keras.Model, layer_parts: List[str]) -> List[tf.keras.Model]:
         with self.graph.as_default():
@@ -45,7 +48,7 @@ class DEFER:
         for i in range(len(models)):
             weights_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             weights_sock.setblocking(0)
-            weights_sock.settimeout(10)
+            weights_sock.settimeout(100)
             model_json = models[i].to_json()
             weights_sock.connect((nodeIPs[i], 5002))
             if i != len(models) - 1:
@@ -54,14 +57,19 @@ class DEFER:
                 # Reached the end of the nodes, the last node needs to point back to the dispatcher
                 nextNode = self.dispatchIP
             
-            self._send_weights(models[i].get_weights(), weights_sock, self.chunk_size)
+            with self.sess.as_default():
+                with self.graph.as_default():
+                    self._send_weights(models[i].get_weights(), weights_sock, self.chunk_size)
+                    print("[DEBUG] _dispatchModels: weights sent to {}".format(nodeIPs[i]))
+
             model_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             model_sock.setblocking(0)
-            model_sock.settimeout(10)
+            model_sock.settimeout(100)
             model_sock.connect((nodeIPs[i], 5001))
+            print("[DEBUG] _dispatchModels: model socket connected")
             socket_send(model_json.encode(), model_sock, self.chunk_size)
             socket_send(nextNode.encode(), model_sock, chunk_size=1)
-            select.select([model_sock], [], []) # Waiting for acknowledgement
+            select.select([model_sock], [], []) # Waiting for acknowledgement: 0x06
             model_sock.recv(1)
 
     def _send_weights(self, weights: List, sock: socket.socket, chunk_size: int):
@@ -81,31 +89,37 @@ class DEFER:
     def _comp(self, arr):
         return lz4.frame.compress(zfpy.compress_numpy(arr))
     def _decomp(self, byts):
-        return zfpy.compress_numpy(lz4.frame.decompress(byts))
+        return zfpy.decompress_numpy(lz4.frame.decompress(byts))
     def _startDistEdgeInference(self, input: queue.Queue):
         data_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         data_sock.connect((self.computeNodes[0], 5000))
+        print("[DEBUG] _startDistEdgeInference: data socket connected")
         data_sock.setblocking(0)
         
         while True:
             model_input = input.get()
             out = self._comp(model_input)
             socket_send(out, data_sock, self.chunk_size)
+            print("[DEBUG] _startDistEdgeInference: data sent to self.computeNodes[0]")
 
     def _result_server(self, output: queue.Queue):
         data_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
         data_server.bind(("0.0.0.0", 5000)) 
+        print("[DEBUG] result server running")
         data_server.listen(1) 
         data_cli = data_server.accept()[0]
+        print("[DEBUG] result server accepted")
         data_cli.setblocking(0)
 
         while True:
             data = bytes(socket_recv(data_cli, self.chunk_size))
+            print("result server received data")
             pred = self._decomp(data)
             output.put(pred)
 
     def run_defer(self, model: tf.keras.Model, partition_layers, input_stream: queue.Queue, output_stream: queue.Queue):
         models_to_dispatch = self._partition(model, partition_layers)
+        print("[DEBUG] partition finished")
         a = threading.Thread(target=self._result_server, args=(output_stream,))
         a.start()
         self._dispatchModels(models_to_dispatch, self.computeNodes)

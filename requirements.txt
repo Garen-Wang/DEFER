@@ -1,0 +1,4 @@
+orjson
+lz4
+zfpy
+pillow

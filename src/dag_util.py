@@ -1,5 +1,7 @@
 import tensorflow as tf
 
+# TODO: 
+
 def get_previous(model, name):
     inbound = model.get_layer(name).inbound_nodes[0].inbound_layers
     if type(inbound) != list:
