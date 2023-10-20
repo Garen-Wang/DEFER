@@ -27,6 +27,7 @@ def traverse(model, name, start, part_name, inpt):
     return to_next
 
 def construct_model(model, start, end, part_name="part_begin"):
+    temp = model.get_layer(start)
     inpt = tf.keras.Input(tensor=model.get_layer(start).output, name=part_name)
     output = traverse(model, end, start, part_name, inpt)
     part = tf.keras.Model(inputs=model.get_layer(start).output, outputs=output)
