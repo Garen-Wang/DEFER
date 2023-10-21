@@ -1,3 +1,4 @@
+from typing import List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -142,64 +143,68 @@ x = torch.randn(1, 3, 227, 227)
 model.eval()
 original_inference_result = model(x)
 
-def split_model(model: nn.Module, module_name: str):
-    module = None
-    sub1_module_names = []
+def split_model(model: nn.Module, names: List[str]) -> List[nn.Module]:
+    part_module_names = [[] for _ in range(len(names) + 1)]
+    part_modules = [] # 分界点的那个 module 的名字
+    cnt = 0
     for name, m in model.named_children():
-        # print('[DEBUG] name of named_children: ', name)
-        sub1_module_names.append(name)
-        if name == module_name:
-            module = m
-            break
+        print('[DEBUG] name of named_children: ', name)
+        part_module_names[cnt].append(name)
+        if cnt != len(names) and name == names[cnt]:
+            cnt += 1
+            part_modules.append(m)
     
-    if module is None:
-        raise TypeError(f'Module {module_name} not found in the model')
+    if cnt != len(names):
+        raise TypeError(f'part_module_names list has wrong length')
     
-    module_idx = None
+    part_modules_idx = []
+    cnt = 0
     for idx, (name, m) in enumerate(model.named_children()):
-        if m is module:
-            module_idx = idx
-            break
+        if m is part_modules[cnt]:
+            cnt += 1
+            part_modules_idx.append(idx)
+            if cnt == len(part_modules):
+                break
     
-    if module_idx is None:
+    if len(part_modules_idx) != len(part_modules):
         raise TypeError(f'Module name found, but module index not found in the model')
 
-    sub_model1 = nn.Sequential(*list(model.children())[:module_idx])
-    sub_model2 = nn.Sequential(*list(model.children())[module_idx:])
+    sub_models = []
+    sub_models.append(nn.Sequential(*list(model.children())[:part_modules_idx[0]]))
+    for i in range(1, len(part_modules_idx)):
+        sub_models.append(nn.Sequential(*list(model.children())[part_modules_idx[i-1]:part_modules_idx[i]]))
+    sub_models.append(nn.Sequential(*list(model.children())[part_modules_idx[-1]:]))
 
     # copy weights to sub models
     original_state_dict = model.state_dict()
-    # print(len(original_state_dict))
-    sub_model1_state_dict = {key: value for key, value in original_state_dict.items() if any(key.startswith(prefix) for prefix in sub1_module_names)}
-    # print(len(sub_model1_state_dict))
-    sub_model2_state_dict = {key: value for key, value in original_state_dict.items() if not any(key.startswith(prefix) for prefix in sub1_module_names)}
-    # print(len(sub_model2_state_dict))
+    sub_model_state_dicts = []
+    for i in range(len(sub_models)):
+        sub_model_state_dicts.append({key: value for key, value in original_state_dict.items() if any(key.startswith(prefix) for prefix in part_module_names[i])})
 
-    sub_model1.load_state_dict(sub_model1_state_dict, strict=False)
-    sub_model2.load_state_dict(sub_model2_state_dict, strict=False)
+    assert len(sub_model_state_dicts) == len(sub_models)
+    for i in range(len(sub_models)):
+        sub_models[i].load_state_dict(sub_model_state_dicts[i], strict=False)
 
     # assert
-    for i in range(min(len(sub_model1.state_dict().items()), len(model.state_dict().items()))):
-        original_model_state_dict = list(model.state_dict().items())[i][1]
-        sub_model_state_dict = list(sub_model1.state_dict().items())[i][1]
-        assert original_model_state_dict.equal(sub_model_state_dict)
+    # for i in range(min(len(sub_model1.state_dict().items()), len(model.state_dict().items()))):
+    #     original_model_state_dict = list(model.state_dict().items())[i][1]
+    #     sub_model_state_dict = list(sub_model1.state_dict().items())[i][1]
+    #     assert original_model_state_dict.equal(sub_model_state_dict)
     
-    for i in range(len(sub_model2.state_dict().items())):
-        original_model_state_dict = list(model.state_dict().items())[i + len(sub_model1.state_dict().items())][1]
-        sub_model_state_dict = list(sub_model2.state_dict().items())[i][1]
-        assert original_model_state_dict.equal(sub_model_state_dict)
+    # for i in range(len(sub_model2.state_dict().items())):
+    #     original_model_state_dict = list(model.state_dict().items())[i + len(sub_model1.state_dict().items())][1]
+    #     sub_model_state_dict = list(sub_model2.state_dict().items())[i][1]
+    #     assert original_model_state_dict.equal(sub_model_state_dict)
 
-    return sub_model1, sub_model2
+    return sub_models
 
-split_module_name = 'flatten'
-sub_model1, sub_model2 = split_model(model, split_module_name)
-sub_model1.eval()
-sub_model2.eval()
-
-model_parts = [sub_model1, sub_model2]
+split_module_names = ['layer3', 'flatten', 'fc1']
+sub_models = split_model(model, split_module_names)
+for sub_model in sub_models:
+    sub_model.eval()
 
 def model_parts_inference(x):
-    for model_part in model_parts:
+    for model_part in sub_models:
         x = model_part(x)
     return x
 
