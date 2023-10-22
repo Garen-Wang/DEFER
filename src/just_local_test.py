@@ -136,8 +136,8 @@ model = MyAlexNet()
 # 传送 data
 # 开始推理
 
-dag_builder = CustomDAGBuilder(model)
-dag_builder.build_dag()
+# dag_builder = CustomDAGBuilder(model)
+# dag_builder.build_dag()
 # 必须实际跑一遍，forward hook 才会被执行
 x = torch.randn(1, 3, 227, 227)
 model.eval()
@@ -185,17 +185,6 @@ def split_model(model: nn.Module, names: List[str]) -> List[nn.Module]:
     for i in range(len(sub_models)):
         sub_models[i].load_state_dict(sub_model_state_dicts[i], strict=False)
 
-    # assert
-    # for i in range(min(len(sub_model1.state_dict().items()), len(model.state_dict().items()))):
-    #     original_model_state_dict = list(model.state_dict().items())[i][1]
-    #     sub_model_state_dict = list(sub_model1.state_dict().items())[i][1]
-    #     assert original_model_state_dict.equal(sub_model_state_dict)
-    
-    # for i in range(len(sub_model2.state_dict().items())):
-    #     original_model_state_dict = list(model.state_dict().items())[i + len(sub_model1.state_dict().items())][1]
-    #     sub_model_state_dict = list(sub_model2.state_dict().items())[i][1]
-    #     assert original_model_state_dict.equal(sub_model_state_dict)
-
     return sub_models
 
 split_module_names = ['layer3', 'flatten', 'fc1']
@@ -203,14 +192,26 @@ sub_models = split_model(model, split_module_names)
 for sub_model in sub_models:
     sub_model.eval()
 
-def model_parts_inference(x):
+def model_parts_inference(sub_models, x):
     for model_part in sub_models:
         x = model_part(x)
     return x
 
 # 取一个左开右闭
 
-test_inference_result = model_parts_inference(x)
+test_inference_result = model_parts_inference(sub_models, x)
 print(original_inference_result)
 print(test_inference_result)
 print(model(x))
+
+# torch.jit
+# for i, sub_model in enumerate(sub_models):
+#     torch.jit.script(sub_model).save(f'sub_model_{i}.pt')
+
+# loaded_sub_models = []
+# for i in range(len(sub_models)):
+#     loaded_sub_models.append(torch.jit.load(f'sub_model_{i}.pt'))
+
+# loaded_test_inference_result = model_parts_inference(loaded_sub_models, x)
+# print(loaded_test_inference_result)
+
