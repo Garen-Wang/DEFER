@@ -117,7 +117,7 @@ if __name__ == '__main__':
         # 添加model_port参数，默认值为3001
     parser.add_argument('--model_port', type=int, default=3001, help='Port for the model (default: 3001)')
     
-    # 添加data_port参数，默认值为3002
+    # 添加data_port参数，默认值为3011
     parser.add_argument('--data_port', type=int, default=3011, help='Port for the data (default: 3002)')
     args = parser.parse_args()
 
