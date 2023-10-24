@@ -229,7 +229,7 @@ def joint_train(model, train_loader, valid_loader, criterion=nn.CrossEntropyLoss
         model.load_state_dict(torch.load(checkpoint)['model_state_dict'])
     else:
         print('????????')
-        model.load_state_dict(torch.load('./checkpoints/backbone_100.pth')['model_state_dict'])
+        model.load_state_dict(torch.load('./checkpoints/backbone_50-2023-10-23_230355.pth')['model_state_dict'])
         pass
 
     lr = 0.001
@@ -333,7 +333,7 @@ def main():
     # y = model(x)
     # print(y.size())
 
-    joint_train(model, train_loader, test_loader)
+    joint_train(model, train_loader, test_loader, pretrain_backbone=False)
 
 if __name__ == '__main__':
     main()
