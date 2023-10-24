@@ -23,11 +23,12 @@ class TestNode:
         model_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         model_server.bind(('0.0.0.0', self.model_socket_port))
         print("[DEBUG] Model socket running, port ", self.model_socket_port)
+        model_server.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 10240000)
         model_server.listen(1) 
         model_cli = model_server.accept()[0]
         print("[DEBUG] Model socket accepted")
         model_cli.setblocking(0)
-
+        model_cli.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 10240000)
         model_bytes = socket_recv(model_cli, node_state.chunk_size)
 
         # TODO: 本机实验，next_node 暂时先传成了端口号
@@ -57,10 +58,11 @@ class TestNode:
     def _data_server_socket(self, node_state: NodeState, to_send: Queue):
         data_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         data_server.bind(('0.0.0.0', self.data_socket_port))
-
+        data_server.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 10240000)
         print("[DEBUG] Data server socket running")
         data_server.listen(1) 
         data_cli = data_server.accept()[0]
+        data_cli.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 10240000)
         print("[DEBUG] Data server socket accepted")
         data_cli.setblocking(0)
 
@@ -117,7 +119,7 @@ if __name__ == '__main__':
         # 添加model_port参数，默认值为3001
     parser.add_argument('--model_port', type=int, default=3001, help='Port for the model (default: 3001)')
     
-    # 添加data_port参数，默认值为3011
+    # 添加data_port参数，默认值为3002
     parser.add_argument('--data_port', type=int, default=3011, help='Port for the data (default: 3002)')
     args = parser.parse_args()
 
