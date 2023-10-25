@@ -1,3 +1,6 @@
+"""
+这部分代码是用来训练 resnet50 早退点的
+"""
 import os
 import numpy as np
 import torch

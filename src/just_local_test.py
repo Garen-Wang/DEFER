@@ -1,3 +1,6 @@
+"""
+这部分是 MyAlexNet 并切分模型，保存在本地
+"""
 from typing import List
 import torch
 import torch.nn as nn
@@ -176,14 +179,14 @@ def split_model(model: nn.Module, names: List[str]) -> List[nn.Module]:
     sub_models.append(nn.Sequential(*list(model.children())[part_modules_idx[-1]:]))
 
     # copy weights to sub models
-    original_state_dict = model.state_dict()
-    sub_model_state_dicts = []
-    for i in range(len(sub_models)):
-        sub_model_state_dicts.append({key: value for key, value in original_state_dict.items() if any(key.startswith(prefix) for prefix in part_module_names[i])})
+    # original_state_dict = model.state_dict()
+    # sub_model_state_dicts = []
+    # for i in range(len(sub_models)):
+    #     sub_model_state_dicts.append({key: value for key, value in original_state_dict.items() if any(key.startswith(prefix) for prefix in part_module_names[i])})
 
-    assert len(sub_model_state_dicts) == len(sub_models)
-    for i in range(len(sub_models)):
-        sub_models[i].load_state_dict(sub_model_state_dicts[i], strict=False)
+    # assert len(sub_model_state_dicts) == len(sub_models)
+    # for i in range(len(sub_models)):
+    #     sub_models[i].load_state_dict(sub_model_state_dicts[i], strict=False)
 
     return sub_models
 

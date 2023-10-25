@@ -7,7 +7,9 @@ class NodeState:
     def __init__(self, chunk_size) -> None:
         self._chunk_size = chunk_size
         self._next_node = ""
+        self._dispatcher_port = ""
         self._model = ""
+        self._model2 = ""
         self._weights = ""
         self._lock = threading.Lock()
     @property
@@ -23,6 +25,14 @@ class NodeState:
         with self._lock:
             self._next_node = nx
     @property
+    def dispatcher_port(self):
+        with self._lock:
+            return self._dispatcher_port
+    @dispatcher_port.setter
+    def dispatcher_port(self, port):
+        with self._lock:
+            self._dispatcher_port = port
+    @property
     def model(self):
         with self._lock:
             return self._model
@@ -30,6 +40,14 @@ class NodeState:
     def model(self, m):
         with self._lock:
             self._model = m
+    @property
+    def model2(self):
+        with self._lock:
+            return self._model2
+    @model2.setter
+    def model2(self, m):
+        with self._lock:
+            self._model2 = m
     @property
     def weights(self):
         with self._lock:

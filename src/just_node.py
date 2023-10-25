@@ -1,6 +1,8 @@
+"""
+pytorch 版用来跑早退点切分模型的节点端模型
+"""
 import argparse
 import io
-import pickle
 from queue import Queue
 import queue
 import select
@@ -9,10 +11,13 @@ from threading import Thread
 import time
 
 import torch
+import torch.nn as nn
 from node_state import NodeState, socket_recv, socket_send
 
 import zfpy
 import lz4.frame
+
+device = 'cpu'
 
 class TestNode:
     def __init__(self, model_socket_port: int, data_socket_port: int) -> None:
@@ -29,20 +34,29 @@ class TestNode:
         print("[DEBUG] Model socket accepted")
         model_cli.setblocking(0)
         model_cli.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 10240000)
-        model_bytes = socket_recv(model_cli, node_state.chunk_size)
 
+        # 收模型，主干模型和早退模型
+        main_model_bytes = socket_recv(model_cli, node_state.chunk_size)
+        exit_model_bytes = socket_recv(model_cli, node_state.chunk_size)
+
+        # 收端口号，下个节点和早退端点
         # TODO: 本机实验，next_node 暂时先传成了端口号
         next_node_data_port = socket_recv(model_cli, chunk_size=1)
         print("[DEBUG] Model socket received architecture & weights")
+        dispatcher_early_exit_port = socket_recv(model_cli, chunk_size=1)
 
-        # TODO: 把 model_bytes 转成 model
-        # model = pickle.loads(model_bytes)
-        model = torch.jit.load(io.BytesIO(model_bytes))
-        model.eval()
-        node_state.model = model
+        # 加载模型
+        main_model = torch.jit.load(io.BytesIO(main_model_bytes))
+        main_model.eval()
+        exit_model = torch.jit.load(io.BytesIO(exit_model_bytes))
+        exit_model.eval()
+        node_state.model = main_model
+        node_state.model2 = exit_model
 
         node_state.next_node = int(next_node_data_port.decode())
         print("[DEBUG] model socket: next_node is ", node_state.next_node)
+        node_state.dispatcher_port = int(dispatcher_early_exit_port.decode())
+        print("[DEBUG] model socket: dispatcher EARLY EXIT port is ", node_state.dispatcher_port)
         select.select([], [model_cli], [])
         model_cli.send(b'\x06')
         model_server.close()
@@ -76,11 +90,13 @@ class TestNode:
 
     # 接收前一个发来的
     def _data_client_socket(self, node_state: NodeState, to_send: Queue):
-        while node_state.next_node == '':
+        while node_state.next_node == '' or node_state.dispatcher_port == '':
             time.sleep(5)
         
         print("[DEBUG] Data client socket received next_node: ", node_state.next_node)
-        model = node_state.model
+        main_model = node_state.model
+        exit_model = node_state.model2
+
         next_node_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # next_node_client.connect((node_state.next_node, 5000))
         # TODO: 本机实验，测试完记得改回来
@@ -88,13 +104,36 @@ class TestNode:
         print("[DEBUG] Data client socket connected, port", node_state.next_node)
         next_node_client.setblocking(0)
 
+        is_final = (node_state.next_node == node_state.dispatcher_port)
+        if not is_final:
+            dispatcher_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            dispatcher_client.connect(('localhost', node_state.dispatcher_port))
+            print("[DEBUG] Early exit data client socket connected, port", node_state.dispatcher_port)
+            dispatcher_client.setblocking(0)
+
+        def is_early_exit(x) -> bool:
+            pk = nn.functional.softmax(x, dim=-1)
+            top1 = torch.max(pk)
+            return top1 > 0.5
+
         while True:
-            input_data = torch.from_numpy(to_send.get())
-            output_data = model(input_data).detach().numpy()
-            print("[DEBUG] data client socket inference finished")
-            output_data = self._comp(output_data)
-            socket_send(output_data, next_node_client, node_state.chunk_size)
-            print("[DEBUG] data client socket result sent to next node")
+            # 在这里做节点端的推理
+            with torch.no_grad():
+                inputs = torch.from_numpy(to_send.get()).to(device)
+                outputs = main_model(inputs)
+                results = exit_model(outputs)
+                # 判断是否能早退
+                if not is_final and is_early_exit(results):
+                    print("[DEBUG] EARLY EXIT!")
+                    results_data = self._comp(results.detach().numpy())
+                    socket_send(results_data, dispatcher_client, node_state.chunk_size)
+                    print("[DEBUG] EARLY EXIT result sent back to dispatcher!!!")
+                    continue
+
+                print("[DEBUG] data client socket inference finished")
+                output_data = self._comp(outputs.detach().numpy() if not is_final else results.detach().numpy())
+                socket_send(output_data, next_node_client, node_state.chunk_size)
+                print("[DEBUG] data client socket result sent to next node")
 
         print("[DEBUG] Data client socket closed")
         print("[DEBUG] Data client socket Thread Finished")
